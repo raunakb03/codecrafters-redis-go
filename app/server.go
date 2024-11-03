@@ -45,6 +45,11 @@ func handleConnection(conn net.Conn) {
         if item=="ECHO" {
             continue;
         }
+
+        if item == "PING" {
+            Ping(conn)
+            return
+        }
         res+= "$"
         res+= strconv.Itoa(len(item))
         res+= "\r\n"
