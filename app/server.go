@@ -13,6 +13,8 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
+var redisMap = make(map[string]string)
+
 func handleError(msg string, err error) {
 	log.Fatalf("%s : %s", msg, err)
 }
@@ -29,6 +31,9 @@ func handleParsing(conn net.Conn) []string {
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
+        if err.Error() == "EOF" {
+            return nil
+        }
 		handleError("Error reading from connection: ", err)
 	}
 	line = strings.TrimSpace(line)
@@ -62,7 +67,7 @@ func handleParsing(conn net.Conn) []string {
 			handleError("Invalid argument length", err)
 		}
 
-		arg := make([]byte, argLen+2) // +2 for \r\n
+		arg := make([]byte, argLen+2)
 		_, err = reader.Read(arg)
 		if err != nil {
 			handleError("Error reading argument", err)
@@ -89,6 +94,24 @@ func handleConnection(conn net.Conn) {
 			if len(values) > 1 {
 				Echo(values[1], conn)
 			}
+        case "SET":
+            if len(values) == 3 {
+                redisMap[values[1]] = values[2]
+                conn.Write([]byte("+OK\r\n"))
+            } else {
+                conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
+            }
+        case "GET":
+            if len(values) == 2 {
+                value, ok := redisMap[values[1]]
+                if ok {
+                    conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
+                } else {
+                    conn.Write([]byte("$-1\r\n"))
+                }
+            } else {
+                conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
+            }
 		default:
 			conn.Write([]byte(fmt.Sprintf("-ERR unknown command '%s'\r\n", command)))
 		}
