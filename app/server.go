@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -24,33 +26,71 @@ func Echo(str string, conn net.Conn) {
 }
 
 func handleParsing(conn net.Conn) []string {
-	buf := make([]byte, 1024)
-	buflen, err := conn.Read(buf)
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
 	if err != nil {
 		handleError("Error reading from connection: ", err)
 	}
-	message := strings.TrimSpace(string(buf[:buflen]))
-	messageSlice := strings.Split(message, "\r\n")
-	values := []string{}
-	for i, item := range messageSlice {
-		if i == 0 || i&1 == 1 || item == "" || item == " " || item == "COMMAND" {
-			continue
-		}
-		values = append(values, item)
+	line = strings.TrimSpace(line)
+
+	if line == "" {
+		return nil
 	}
+
+	if line[0] != '*' {
+		handleError("Invalid RESP format", fmt.Errorf("expected '*', got '%c'", line[0]))
+	}
+
+	numArgs, err := strconv.Atoi(line[1:])
+	if err != nil {
+		handleError("Invalid number of arguments", err)
+	}
+
+	values := make([]string, numArgs)
+	for i := 0; i < numArgs; i++ {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			handleError("Error reading from connection: ", err)
+		}
+		line = strings.TrimSpace(line)
+		if line[0] != '$' {
+			handleError("Invalid RESP format", fmt.Errorf("expected '$', got '%c'", line[0]))
+		}
+
+		argLen, err := strconv.Atoi(line[1:])
+		if err != nil {
+			handleError("Invalid argument length", err)
+		}
+
+		arg := make([]byte, argLen+2) // +2 for \r\n
+		_, err = reader.Read(arg)
+		if err != nil {
+			handleError("Error reading argument", err)
+		}
+
+		values[i] = string(arg[:argLen])
+	}
+
 	return values
 }
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	decodedSlice := handleParsing(conn)
-	for _, item := range decodedSlice {
-		if item == "PING" {
-			Ping(conn)
-		} else if item == "ECHO" {
+	for {
+		values := handleParsing(conn)
+		if len(values) == 0 {
 			continue
-		} else {
-			Echo(item, conn)
+		}
+		command := strings.ToUpper(values[0])
+		switch command {
+		case "PING":
+			Ping(conn)
+		case "ECHO":
+			if len(values) > 1 {
+				Echo(values[1], conn)
+			}
+		default:
+			conn.Write([]byte(fmt.Sprintf("-ERR unknown command '%s'\r\n", command)))
 		}
 	}
 }
