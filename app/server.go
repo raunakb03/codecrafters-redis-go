@@ -1,11 +1,10 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -13,62 +12,59 @@ var _ = net.Listen
 var _ = os.Exit
 
 func handleError(msg string, err error) {
-    log.Fatalf("%s : %s", msg, err)
+	log.Fatalf("%s : %s", msg, err)
 }
 
 func Ping(conn net.Conn) {
 	conn.Write([]byte("+PONG\r\n"))
 }
 
-func parseRequest(conn io.Reader) ([]string, error) {
-	msg := make([]byte, 1024)
-	value := []string{}
-	msglen, err := conn.Read(msg)
+func Echo(str string, conn net.Conn) {
+	conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)))
+}
+
+func handleParsing(conn net.Conn) []string {
+	buf := make([]byte, 1024)
+	buflen, err := conn.Read(buf)
 	if err != nil {
-        handleError("Error reading from connection: ", err)
+		handleError("Error reading from connection: ", err)
 	}
-	message := strings.TrimSpace(string(msg[:msglen]))
+	message := strings.TrimSpace(string(buf[:buflen]))
 	messageSlice := strings.Split(message, "\r\n")
-	for i, item := range messageSlice[2:] {
-		if i%2 == 0 {
-			value = append(value, item)
+	values := []string{}
+	for i, item := range messageSlice {
+		if i==0 || i&1==1 || item == "" || item == " " || item == "COMMAND" {
+			continue
 		}
+        values = append(values, item)
 	}
-	return value, nil
+    return values
 }
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-    decodedRequest, _ := parseRequest(conn)
-    res := ""
-    for _, item := range decodedRequest {
-        if item=="ECHO" {
-            continue;
-        }
-
+    decodedSlice := handleParsing(conn)
+    for _, item := range(decodedSlice) {
         if item == "PING" {
             Ping(conn)
-            return
+        } else if item == "ECHO" {
+            continue;
+        } else {
+            Echo(item, conn)
         }
-        res+= "$"
-        res+= strconv.Itoa(len(item))
-        res+= "\r\n"
-        res+= item
-        res+= "\r\n"
     }
-	conn.Write([]byte(res))
 }
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
-        handleError("Error listening to port ", err)
+		handleError("Error listening to port ", err)
 	}
-    defer l.Close()
+	defer l.Close()
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-            handleError("Error accepting connection: ", err)
+			handleError("Error accepting connection: ", err)
 		}
 		go handleConnection(conn)
 	}
