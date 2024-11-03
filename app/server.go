@@ -35,6 +35,26 @@ func Echo(str string, conn net.Conn) {
 	conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)))
 }
 
+func Set(key string, value string, isExpiration bool, expireAfter int64) {
+	redisMap[key] = ValueType{
+		key:                          key,
+		value:                        value,
+		hasExpiration:                isExpiration,
+		expirationTimeInMilliseconds: time.Now().UnixMilli() + expireAfter,
+	}
+}
+
+func Get(key string) string {
+	valueStruct, ok := redisMap[key]
+	if valueStruct.hasExpiration && valueStruct.expirationTimeInMilliseconds < time.Now().UnixMilli() {
+		ok = false
+	}
+	if ok {
+		return valueStruct.value
+	}
+	return ""
+}
+
 func handleParsing(conn net.Conn) []string {
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
@@ -103,36 +123,25 @@ func handleConnection(conn net.Conn) {
 				Echo(values[1], conn)
 			}
 		case "SET":
-			if len(values) != 3 || len(values) != 5 {
-				redisMap[values[1]] = ValueType{
-					key:                          values[1],
-					value:                        values[2],
-					hasExpiration:                false,
-					expirationTimeInMilliseconds: 0,
-				}
-				if len(values) == 5 {
-					val, _ := redisMap[values[1]]
-					val.hasExpiration = true
-					intTime, err := strconv.Atoi(values[4])
-					if err != nil {
-						handleError("Wrong time format ", err)
-					}
-					val.expirationTimeInMilliseconds = time.Now().UnixMilli() + int64(intTime)
-                    redisMap[values[1]] = val
-				}
+			switch {
+			case len(values) == 3:
+				Set(values[1], values[2], false, 0)
 				conn.Write([]byte("+OK\r\n"))
-			} else {
+			case len(values) == 5:
+				expireAfter, err := strconv.Atoi(values[4])
+				if err != nil {
+					handleError("Error converting expireAfter to int", err)
+				}
+				Set(values[1], values[2], true, int64(expireAfter))
+				conn.Write([]byte("+OK\r\n"))
+			default:
 				conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
 			}
 		case "GET":
 			if len(values) == 2 {
-				valueStruct, ok := redisMap[values[1]]
-				if valueStruct.hasExpiration && valueStruct.expirationTimeInMilliseconds < time.Now().UnixMilli() {
-					ok = false
-				}
-				if ok {
-					value := valueStruct.value
-					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
+				val := Get(values[1])
+				if val != "" {
+					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
 				} else {
 					conn.Write([]byte("$-1\r\n"))
 				}
