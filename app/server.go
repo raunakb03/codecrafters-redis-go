@@ -40,9 +40,7 @@ func parseRequest(conn io.Reader) ([]string, error) {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
     decodedRequest, _ := parseRequest(conn)
-    res := "*"
-    res+= strconv.Itoa(len(decodedRequest))
-    res+="\r\n";
+    res := ""
     for _, item := range decodedRequest {
         res+= "$"
         res+= strconv.Itoa(len(item))
