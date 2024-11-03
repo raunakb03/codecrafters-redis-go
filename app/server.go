@@ -42,6 +42,9 @@ func handleConnection(conn net.Conn) {
     decodedRequest, _ := parseRequest(conn)
     res := ""
     for _, item := range decodedRequest {
+        if item=="ECHO" {
+            continue;
+        }
         res+= "$"
         res+= strconv.Itoa(len(item))
         res+= "\r\n"
