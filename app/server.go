@@ -33,26 +33,26 @@ func handleParsing(conn net.Conn) []string {
 	messageSlice := strings.Split(message, "\r\n")
 	values := []string{}
 	for i, item := range messageSlice {
-		if i==0 || i&1==1 || item == "" || item == " " || item == "COMMAND" {
+		if i == 0 || i&1 == 1 || item == "" || item == " " || item == "COMMAND" {
 			continue
 		}
-        values = append(values, item)
+		values = append(values, item)
 	}
-    return values
+	return values
 }
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-    decodedSlice := handleParsing(conn)
-    for _, item := range(decodedSlice) {
-        if item == "PING" {
-            Ping(conn)
-        } else if item == "ECHO" {
-            continue;
-        } else {
-            Echo(item, conn)
-        }
-    }
+	decodedSlice := handleParsing(conn)
+	for _, item := range decodedSlice {
+		if item == "PING" {
+			Ping(conn)
+		} else if item == "ECHO" {
+			continue
+		} else {
+			Echo(item, conn)
+		}
+	}
 }
 
 func main() {
