@@ -36,6 +36,14 @@ func Echo(str string, conn net.Conn) {
 	conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)))
 }
 
+func GetRespArray(values []string) string {
+	respArrString := "*" + strconv.Itoa(len(values)) + "\r\n"
+	for _, item := range values {
+		respArrString += "$" + strconv.Itoa(len(item)) + "\r\n" + item + "\r\n"
+	}
+	return respArrString
+}
+
 func Set(key string, value string, isExpiration bool, expireAfter int64) {
 	redisMap[key] = ValueType{
 		key:                          key,
@@ -108,7 +116,7 @@ func handleParsing(conn net.Conn) []string {
 	return values
 }
 
-func handleParsedValues(values []string, conn net.Conn) {
+func handleParsedValues(values []string, conn net.Conn, respArr bool) {
 	command := strings.ToUpper(values[0])
 	switch command {
 	case "PING":
@@ -136,15 +144,21 @@ func handleParsedValues(values []string, conn net.Conn) {
 		if len(values) == 2 {
 			val := Get(values[1])
 			if val != "" {
-				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+				if respArr {
+                    respArrValues := []string{values[1], val}
+                    conn.Write([]byte(GetRespArray(respArrValues)))
+				} else {
+					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+
+				}
 			} else {
 				conn.Write([]byte("$-1\r\n"))
 			}
 		} else {
 			conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
 		}
-    case "CONFIG":
-        handleParsedValues(values[1:], conn)
+	case "CONFIG":
+		handleParsedValues(values[1:], conn, true)
 	default:
 		conn.Write([]byte(fmt.Sprintf("-ERR unknown command '%s'\r\n", command)))
 	}
@@ -157,7 +171,7 @@ func handleConnection(conn net.Conn) {
 		if len(values) == 0 {
 			continue
 		}
-        handleParsedValues(values, conn)
+		handleParsedValues(values, conn, false)
 	}
 }
 
