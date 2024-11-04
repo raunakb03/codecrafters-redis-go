@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -107,6 +108,48 @@ func handleParsing(conn net.Conn) []string {
 	return values
 }
 
+func handleParsedValues(values []string, conn net.Conn) {
+	command := strings.ToUpper(values[0])
+	switch command {
+	case "PING":
+		Ping(conn)
+	case "ECHO":
+		if len(values) > 1 {
+			Echo(values[1], conn)
+		}
+	case "SET":
+		switch {
+		case len(values) == 3:
+			Set(values[1], values[2], false, 0)
+			conn.Write([]byte("+OK\r\n"))
+		case len(values) == 5:
+			expireAfter, err := strconv.Atoi(values[4])
+			if err != nil {
+				handleError("Error converting expireAfter to int", err)
+			}
+			Set(values[1], values[2], true, int64(expireAfter))
+			conn.Write([]byte("+OK\r\n"))
+		default:
+			conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
+		}
+	case "GET":
+		if len(values) == 2 {
+			val := Get(values[1])
+			if val != "" {
+				conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+			} else {
+				conn.Write([]byte("$-1\r\n"))
+			}
+		} else {
+			conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
+		}
+    case "CONFIG":
+        handleParsedValues(values[1:], conn)
+	default:
+		conn.Write([]byte(fmt.Sprintf("-ERR unknown command '%s'\r\n", command)))
+	}
+}
+
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
@@ -114,47 +157,19 @@ func handleConnection(conn net.Conn) {
 		if len(values) == 0 {
 			continue
 		}
-		command := strings.ToUpper(values[0])
-		switch command {
-		case "PING":
-			Ping(conn)
-		case "ECHO":
-			if len(values) > 1 {
-				Echo(values[1], conn)
-			}
-		case "SET":
-			switch {
-			case len(values) == 3:
-				Set(values[1], values[2], false, 0)
-				conn.Write([]byte("+OK\r\n"))
-			case len(values) == 5:
-				expireAfter, err := strconv.Atoi(values[4])
-				if err != nil {
-					handleError("Error converting expireAfter to int", err)
-				}
-				Set(values[1], values[2], true, int64(expireAfter))
-				conn.Write([]byte("+OK\r\n"))
-			default:
-				conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
-			}
-		case "GET":
-			if len(values) == 2 {
-				val := Get(values[1])
-				if val != "" {
-					conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
-				} else {
-					conn.Write([]byte("$-1\r\n"))
-				}
-			} else {
-				conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
-			}
-		default:
-			conn.Write([]byte(fmt.Sprintf("-ERR unknown command '%s'\r\n", command)))
-		}
+        handleParsedValues(values, conn)
 	}
 }
 
 func main() {
+	dbDir := flag.String("dir", "nil", "name of the RDB config file directory")
+	dbFilename := flag.String("dbfilename", "nil", "name of RDB config file")
+
+	flag.Parse()
+
+	Set("dir", *dbDir, false, 0)
+	Set("dbfilename", *dbFilename, false, 0)
+
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
 		handleError("Error listening to port ", err)
